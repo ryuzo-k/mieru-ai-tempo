@@ -14,6 +14,10 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  ChevronDown,
+  ChevronUp,
+  Target,
+  Save,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -39,6 +43,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -55,12 +61,14 @@ import {
   saveOutreachTargets,
   getGmailConfig,
 } from '@/lib/storage'
-import { OutreachTarget, OutreachStatus, GmailConfig } from '@/types'
+import { OutreachTarget, OutreachStatus, OutreachType, GmailConfig } from '@/types'
 import { cn } from '@/lib/utils'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
+
+const FOCUS_PAGE_STORAGE_KEY = 'miel_outreach_focus_page'
 
 const statusConfig: Record<
   OutreachStatus,
@@ -85,6 +93,24 @@ const statusConfig: Record<
     label: '掲載確認済み',
     badgeClass: 'bg-green-100 text-green-700 border-green-200',
     icon: CheckCircle,
+  },
+}
+
+const outreachTypeConfig: Record<
+  OutreachType,
+  { label: string; badgeClass: string }
+> = {
+  listing: {
+    label: '掲載依頼',
+    badgeClass: 'bg-blue-100 text-blue-700 border-blue-200',
+  },
+  mutual_link: {
+    label: '相互リンク',
+    badgeClass: 'bg-green-100 text-green-700 border-green-200',
+  },
+  pr: {
+    label: 'PR施策',
+    badgeClass: 'bg-purple-100 text-purple-700 border-purple-200',
   },
 }
 
@@ -137,6 +163,20 @@ function StatusBadge({ status }: { status: OutreachStatus }) {
   )
 }
 
+function OutreachTypeBadge({ type }: { type: OutreachType }) {
+  const cfg = outreachTypeConfig[type] ?? outreachTypeConfig.listing
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
+        cfg.badgeClass
+      )}
+    >
+      {cfg.label}
+    </span>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,7 +193,17 @@ export default function OutreachPage() {
   const [generating, setGenerating] = useState<string | null>(null)
   const [sending, setSending] = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterType, setFilterType] = useState<string>('all')
   const [error, setError] = useState<string | null>(null)
+
+  // Focus page global settings
+  const [focusPageUrl, setFocusPageUrl] = useState('')
+  const [focusPageKeyword, setFocusPageKeyword] = useState('')
+  const [focusPageSaved, setFocusPageSaved] = useState(false)
+
+  // Expanded negotiation note rows
+  const [expandedTargetId, setExpandedTargetId] = useState<string | null>(null)
+  const [noteEditing, setNoteEditing] = useState<Record<string, string>>({})
 
   // Preview dialog state
   const [previewTarget, setPreviewTarget] = useState<OutreachTarget | null>(null)
@@ -163,6 +213,19 @@ export default function OutreachPage() {
   useEffect(() => {
     setTargets(getOutreachTargets())
     setGmailConfig(getGmailConfig())
+
+    // Load focus page settings
+    try {
+      const saved = localStorage.getItem(FOCUS_PAGE_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        setFocusPageUrl(parsed.url || '')
+        setFocusPageKeyword(parsed.keyword || '')
+        setFocusPageSaved(true)
+      }
+    } catch {
+      // ignore
+    }
   }, [])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -175,6 +238,14 @@ export default function OutreachPage() {
   const patchTarget = (id: string, patch: Partial<OutreachTarget>) => {
     const updated = targets.map((t) => (t.id === id ? { ...t, ...patch } : t))
     updateTargets(updated)
+  }
+
+  const handleSaveFocusPage = () => {
+    localStorage.setItem(
+      FOCUS_PAGE_STORAGE_KEY,
+      JSON.stringify({ url: focusPageUrl, keyword: focusPageKeyword })
+    )
+    setFocusPageSaved(true)
   }
 
   // ── Find media ────────────────────────────────────────────────────────────
@@ -227,6 +298,10 @@ export default function OutreachPage() {
           mediaName: target.mediaName,
           mediaUrl: target.mediaUrl,
           competitorInfo: target.competitorInfo,
+          outreachType: target.outreachType || 'listing',
+          targetRanking: target.targetRanking,
+          focusPageUrl: target.focusPageUrl || focusPageUrl,
+          focusPageKeyword: target.focusPageKeyword || focusPageKeyword,
         }),
       })
       const data = await res.json()
@@ -320,13 +395,22 @@ export default function OutreachPage() {
     setSavingDraft(false)
   }
 
+  // ── Negotiation note ──────────────────────────────────────────────────────
+
+  const handleSaveNote = (id: string) => {
+    patchTarget(id, { negotiationNote: noteEditing[id] ?? '' })
+    setExpandedTargetId(null)
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Derived state
   // ─────────────────────────────────────────────────────────────────────────
 
-  const filteredTargets = targets.filter(
-    (t) => filterStatus === 'all' || t.status === filterStatus
-  )
+  const filteredTargets = targets.filter((t) => {
+    if (filterStatus !== 'all' && t.status !== filterStatus) return false
+    if (filterType !== 'all' && (t.outreachType || 'listing') !== filterType) return false
+    return true
+  })
 
   const statusCounts = targets.reduce<Record<string, number>>((acc, t) => {
     acc[t.status] = (acc[t.status] ?? 0) + 1
@@ -386,12 +470,80 @@ export default function OutreachPage() {
         )}
       </div>
 
+      {/* Focus page strategy */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-4 w-4" />
+            重点ページ設定
+          </CardTitle>
+          <CardDescription>
+            被リンクを集中させたいページを設定します。メール生成時に自動で反映されます
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {focusPageSaved && focusPageUrl && (
+            <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+              <Target className="h-4 w-4 shrink-0" />
+              <span>
+                このURLへの被リンクを集中獲得中:{' '}
+                <span className="font-medium">{focusPageUrl}</span>
+                {focusPageKeyword && (
+                  <span className="text-blue-500 ml-1">（{focusPageKeyword}）</span>
+                )}
+              </span>
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="focusPageUrl" className="text-xs">
+                重点ページURL
+              </Label>
+              <Input
+                id="focusPageUrl"
+                placeholder="https://example.com/target-page"
+                value={focusPageUrl}
+                onChange={(e) => {
+                  setFocusPageUrl(e.target.value)
+                  setFocusPageSaved(false)
+                }}
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="focusPageKeyword" className="text-xs">
+                狙うキーワード
+              </Label>
+              <Input
+                id="focusPageKeyword"
+                placeholder="例: 渋谷 美容室"
+                value={focusPageKeyword}
+                onChange={(e) => {
+                  setFocusPageKeyword(e.target.value)
+                  setFocusPageSaved(false)
+                }}
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1"
+            onClick={handleSaveFocusPage}
+          >
+            <Save className="h-3 w-3" />
+            保存
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Find media */}
       <Card>
         <CardHeader>
           <CardTitle>メディア候補を探す</CardTitle>
           <CardDescription>
-            AIが競合他社が掲載・引用されているメディアを自動リストアップします
+            AIが競合他社が掲載・引用されているメディアを自動リストアップします（掲載依頼・相互リンク・PR含む）
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -420,18 +572,31 @@ export default function OutreachPage() {
               ({targets.length}件)
             </span>
           </h2>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-48 text-xs h-8">
-              <SelectValue placeholder="ステータスで絞り込み" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">すべてのステータス</SelectItem>
-              <SelectItem value="pending">未対応</SelectItem>
-              <SelectItem value="drafted">メール下書き済み</SelectItem>
-              <SelectItem value="sent">送信済み</SelectItem>
-              <SelectItem value="confirmed">掲載確認済み</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2 flex-wrap">
+            <Select value={filterType} onValueChange={setFilterType}>
+              <SelectTrigger className="w-36 text-xs h-8">
+                <SelectValue placeholder="種別で絞り込み" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">すべての種別</SelectItem>
+                <SelectItem value="listing">掲載依頼</SelectItem>
+                <SelectItem value="mutual_link">相互リンク</SelectItem>
+                <SelectItem value="pr">PR施策</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-44 text-xs h-8">
+                <SelectValue placeholder="ステータスで絞り込み" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">すべてのステータス</SelectItem>
+                <SelectItem value="pending">未対応</SelectItem>
+                <SelectItem value="drafted">メール下書き済み</SelectItem>
+                <SelectItem value="sent">送信済み</SelectItem>
+                <SelectItem value="confirmed">掲載確認済み</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {filteredTargets.length === 0 ? (
@@ -456,9 +621,11 @@ export default function OutreachPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[160px]">メディア名</TableHead>
-                    <TableHead className="min-w-[180px]">引用競合情報</TableHead>
-                    <TableHead className="min-w-[160px]">連絡先メール</TableHead>
+                    <TableHead className="min-w-[140px]">メディア名</TableHead>
+                    <TableHead className="min-w-[100px]">種別</TableHead>
+                    <TableHead className="min-w-[90px]">目標順位</TableHead>
+                    <TableHead className="min-w-[160px]">引用競合情報</TableHead>
+                    <TableHead className="min-w-[140px]">連絡先メール</TableHead>
                     <TableHead className="min-w-[160px]">ステータス</TableHead>
                     <TableHead className="min-w-[220px] text-right">
                       アクション
@@ -466,175 +633,264 @@ export default function OutreachPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredTargets.map((target) => (
-                    <TableRow key={target.id}>
-                      {/* Media name */}
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-sm">
-                            {target.mediaName}
-                          </span>
-                          {target.mediaUrl && (
-                            <a
-                              href={target.mediaUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-muted-foreground hover:text-foreground transition-colors"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          )}
-                        </div>
-                      </TableCell>
-
-                      {/* Competitor info */}
-                      <TableCell>
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {target.competitorInfo || '—'}
-                        </p>
-                      </TableCell>
-
-                      {/* Contact email */}
-                      <TableCell>
-                        <span className="text-xs text-muted-foreground">
-                          {target.contactEmail || '—'}
-                        </span>
-                      </TableCell>
-
-                      {/* Status */}
-                      <TableCell>
-                        <div className="space-y-1.5">
-                          <StatusBadge status={target.status} />
-                          <Select
-                            value={target.status}
-                            onValueChange={(v) =>
-                              handleUpdateStatus(target.id, v as OutreachStatus)
-                            }
-                          >
-                            <SelectTrigger className="h-7 text-xs w-40">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">未対応</SelectItem>
-                              <SelectItem value="drafted">
-                                メール下書き済み
-                              </SelectItem>
-                              <SelectItem value="sent">送信済み</SelectItem>
-                              <SelectItem value="confirmed">
-                                掲載確認済み
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {target.sentAt && (
-                            <p className="text-xs text-muted-foreground">
-                              送信:{' '}
-                              {new Date(target.sentAt).toLocaleDateString('ja-JP')}
-                            </p>
-                          )}
-                          {target.confirmedAt && (
-                            <p className="text-xs text-green-600 font-medium">
-                              確認:{' '}
-                              {new Date(target.confirmedAt).toLocaleDateString(
-                                'ja-JP'
+                  {filteredTargets.map((target) => {
+                    const isExpanded = expandedTargetId === target.id
+                    return (
+                      <>
+                        <TableRow key={target.id}>
+                          {/* Media name */}
+                          <TableCell>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-sm">
+                                {target.mediaName}
+                              </span>
+                              {target.mediaUrl && (
+                                <a
+                                  href={target.mediaUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
                               )}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
+                            </div>
+                          </TableCell>
 
-                      {/* Actions */}
-                      <TableCell>
-                        <div className="flex flex-col items-end gap-1.5">
-                          <div className="flex flex-wrap gap-1.5 justify-end">
-                            {/* Generate email */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs gap-1"
-                              onClick={() => handleGenerateEmail(target)}
-                              disabled={generating === target.id}
-                              title="メール下書きを生成"
-                            >
-                              {generating === target.id ? (
-                                <>
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                  生成中
-                                </>
-                              ) : (
-                                <>
-                                  <RefreshCw className="h-3 w-3" />
-                                  メール生成
-                                </>
-                              )}
-                            </Button>
+                          {/* Outreach type */}
+                          <TableCell>
+                            <OutreachTypeBadge type={target.outreachType || 'listing'} />
+                          </TableCell>
 
-                            {/* Preview */}
-                            {target.draftEmail && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs gap-1"
-                                onClick={() => {
-                                  setPreviewTarget(target)
-                                  setEmailDraft(target.draftEmail)
-                                }}
-                              >
-                                <Eye className="h-3 w-3" />
-                                プレビュー
-                              </Button>
+                          {/* Target ranking */}
+                          <TableCell>
+                            {target.targetRanking ? (
+                              <span className="text-xs font-medium text-orange-600">
+                                {target.targetRanking}位狙い
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
                             )}
+                          </TableCell>
 
-                            {/* Send via Gmail */}
-                            {target.draftEmail && (
-                              <Button
-                                variant={
-                                  gmailConfig.connected ? 'default' : 'outline'
-                                }
-                                size="sm"
-                                className="h-7 text-xs gap-1"
-                                disabled={
-                                  sending === target.id || !gmailConfig.connected
-                                }
-                                onClick={() =>
-                                  handleSendViaGmailApi(target, target.draftEmail)
-                                }
-                                title={
-                                  !gmailConfig.connected
-                                    ? '設定でGmailを接続してください'
-                                    : 'Gmailで送信'
+                          {/* Competitor info */}
+                          <TableCell>
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {target.competitorInfo || '—'}
+                            </p>
+                          </TableCell>
+
+                          {/* Contact email */}
+                          <TableCell>
+                            <span className="text-xs text-muted-foreground">
+                              {target.contactEmail || '—'}
+                            </span>
+                          </TableCell>
+
+                          {/* Status */}
+                          <TableCell>
+                            <div className="space-y-1.5">
+                              <StatusBadge status={target.status} />
+                              <Select
+                                value={target.status}
+                                onValueChange={(v) =>
+                                  handleUpdateStatus(target.id, v as OutreachStatus)
                                 }
                               >
-                                {sending === target.id ? (
-                                  <>
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                    送信中
-                                  </>
-                                ) : (
-                                  <>
-                                    <Send className="h-3 w-3" />
-                                    Gmailで送信
-                                  </>
+                                <SelectTrigger className="h-7 text-xs w-40">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="pending">未対応</SelectItem>
+                                  <SelectItem value="drafted">
+                                    メール下書き済み
+                                  </SelectItem>
+                                  <SelectItem value="sent">送信済み</SelectItem>
+                                  <SelectItem value="confirmed">
+                                    掲載確認済み
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                              {target.sentAt && (
+                                <p className="text-xs text-muted-foreground">
+                                  送信:{' '}
+                                  {new Date(target.sentAt).toLocaleDateString('ja-JP')}
+                                </p>
+                              )}
+                              {target.confirmedAt && (
+                                <p className="text-xs text-green-600 font-medium">
+                                  確認:{' '}
+                                  {new Date(target.confirmedAt).toLocaleDateString(
+                                    'ja-JP'
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+
+                          {/* Actions */}
+                          <TableCell>
+                            <div className="flex flex-col items-end gap-1.5">
+                              <div className="flex flex-wrap gap-1.5 justify-end">
+                                {/* Generate email */}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs gap-1"
+                                  onClick={() => handleGenerateEmail(target)}
+                                  disabled={generating === target.id}
+                                  title="メール下書きを生成"
+                                >
+                                  {generating === target.id ? (
+                                    <>
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      生成中
+                                    </>
+                                  ) : (
+                                    <>
+                                      <RefreshCw className="h-3 w-3" />
+                                      メール生成
+                                    </>
+                                  )}
+                                </Button>
+
+                                {/* Preview */}
+                                {target.draftEmail && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs gap-1"
+                                    onClick={() => {
+                                      setPreviewTarget(target)
+                                      setEmailDraft(target.draftEmail)
+                                    }}
+                                  >
+                                    <Eye className="h-3 w-3" />
+                                    プレビュー
+                                  </Button>
                                 )}
-                              </Button>
-                            )}
-                          </div>
 
-                          {/* Connect Gmail hint */}
-                          {target.draftEmail && !gmailConfig.connected && (
-                            <p className="text-xs text-muted-foreground">
-                              送信するには{' '}
-                              <Link
-                                href="/settings"
-                                className="text-blue-600 hover:underline"
-                              >
-                                設定でGmailを接続
-                              </Link>
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                                {/* Send via Gmail */}
+                                {target.draftEmail && (
+                                  <Button
+                                    variant={
+                                      gmailConfig.connected ? 'default' : 'outline'
+                                    }
+                                    size="sm"
+                                    className="h-7 text-xs gap-1"
+                                    disabled={
+                                      sending === target.id || !gmailConfig.connected
+                                    }
+                                    onClick={() =>
+                                      handleSendViaGmailApi(target, target.draftEmail)
+                                    }
+                                    title={
+                                      !gmailConfig.connected
+                                        ? '設定でGmailを接続してください'
+                                        : 'Gmailで送信'
+                                    }
+                                  >
+                                    {sending === target.id ? (
+                                      <>
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                        送信中
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Send className="h-3 w-3" />
+                                        Gmailで送信
+                                      </>
+                                    )}
+                                  </Button>
+                                )}
+
+                                {/* Toggle note */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs gap-1"
+                                  onClick={() => {
+                                    if (isExpanded) {
+                                      setExpandedTargetId(null)
+                                    } else {
+                                      setExpandedTargetId(target.id)
+                                      setNoteEditing((prev) => ({
+                                        ...prev,
+                                        [target.id]: target.negotiationNote || '',
+                                      }))
+                                    }
+                                  }}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronUp className="h-3 w-3" />
+                                  ) : (
+                                    <ChevronDown className="h-3 w-3" />
+                                  )}
+                                  交渉メモ
+                                </Button>
+                              </div>
+
+                              {/* Connect Gmail hint */}
+                              {target.draftEmail && !gmailConfig.connected && (
+                                <p className="text-xs text-muted-foreground">
+                                  送信するには{' '}
+                                  <Link
+                                    href="/settings"
+                                    className="text-blue-600 hover:underline"
+                                  >
+                                    設定でGmailを接続
+                                  </Link>
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+
+                        {/* Negotiation note expanded row */}
+                        {isExpanded && (
+                          <TableRow key={`${target.id}-note`} className="bg-muted/30">
+                            <TableCell colSpan={7} className="py-3 px-4">
+                              <div className="space-y-2">
+                                <p className="text-xs font-medium text-muted-foreground">
+                                  交渉メモ・譲渡条件など
+                                </p>
+                                <Textarea
+                                  value={noteEditing[target.id] ?? ''}
+                                  onChange={(e) =>
+                                    setNoteEditing((prev) => ({
+                                      ...prev,
+                                      [target.id]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="交渉内容・条件・メモを入力..."
+                                  rows={3}
+                                  className="text-sm resize-none"
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="h-7 text-xs gap-1"
+                                    onClick={() => handleSaveNote(target.id)}
+                                  >
+                                    <Save className="h-3 w-3" />
+                                    保存
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() => setExpandedTargetId(null)}
+                                  >
+                                    閉じる
+                                  </Button>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -656,6 +912,7 @@ export default function OutreachPage() {
                 <div className="flex items-center gap-2">
                   <Send className="h-4 w-4 text-orange-500 shrink-0" />
                   <span className="font-medium">{t.mediaName}</span>
+                  <OutreachTypeBadge type={t.outreachType || 'listing'} />
                   <span className="text-muted-foreground text-xs">
                     {t.contactEmail}
                   </span>

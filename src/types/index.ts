@@ -127,6 +127,9 @@ export interface WebsiteAnalysis {
 // アウトリーチステータス
 export type OutreachStatus = 'pending' | 'drafted' | 'sent' | 'confirmed'
 
+// アウトリーチ種別
+export type OutreachType = 'listing' | 'mutual_link' | 'pr'
+
 // アウトリーチターゲット
 export interface OutreachTarget {
   id: string
@@ -139,6 +142,12 @@ export interface OutreachTarget {
   sentAt: string | null
   confirmedAt: string | null
   createdAt: string
+  outreachType: OutreachType
+  targetRanking: number | null
+  currentRanking: number | null
+  focusPageUrl: string
+  focusPageKeyword: string
+  negotiationNote: string
 }
 
 // APIキー設定
