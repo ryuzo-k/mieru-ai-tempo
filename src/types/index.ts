@@ -159,6 +159,14 @@ export interface ApiKeys {
   firecrawl: string
 }
 
+// WordPress連携設定
+export interface WordPressConfig {
+  siteUrl: string
+  username: string
+  applicationPassword: string
+  connected: boolean
+}
+
 // Gmail設定
 export interface GmailConfig {
   connected: boolean
@@ -173,6 +181,17 @@ export interface MeasurementSchedule {
   customTimes: string[]
 }
 
+// コンテンツパターンテンプレート
+export type ContentPatternType = 'owned_media_article' | 'lp' | 'whitepaper' | 'note' | 'press_release'
+
+export interface ContentPattern {
+  id: string
+  type: ContentPatternType
+  name: string
+  pattern: string
+  savedAt: string
+}
+
 // アプリ全体のストア
 export interface AppStore {
   store: StoreInfo | null
@@ -184,5 +203,7 @@ export interface AppStore {
   apiKeys: ApiKeys
   gmailConfig: GmailConfig
   measurementSchedule: MeasurementSchedule
+  wordPressConfig: WordPressConfig
+  contentPatterns: ContentPattern[]
   setupCompleted: boolean
 }

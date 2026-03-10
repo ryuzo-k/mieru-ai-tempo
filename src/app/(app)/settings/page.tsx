@@ -32,10 +32,13 @@ import {
   getStoreInfo,
   saveStoreInfo,
   resetStore,
+  getWordPressConfig,
+  saveWordPressConfig,
 } from '@/lib/storage'
-import { ApiKeys, StoreInfo, BusinessType } from '@/types'
+import { ApiKeys, StoreInfo, BusinessType, WordPressConfig } from '@/types'
 import { useRouter } from 'next/navigation'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 
 interface ApiKeyField {
   key: keyof ApiKeys
@@ -101,12 +104,18 @@ export default function SettingsPage() {
   const [schedule, setSchedule] = useState<{ preset: 'three_times' | 'custom'; customTimes: string[] }>({ preset: 'three_times', customTimes: ['09:00', '13:00', '18:00'] })
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const [storeSaved, setStoreSaved] = useState(false)
+  const [wpConfig, setWpConfig] = useState<WordPressConfig>({ siteUrl: '', username: '', applicationPassword: '', connected: false })
+  const [showWpPassword, setShowWpPassword] = useState(false)
+  const [wpSaved, setWpSaved] = useState(false)
+  const [wpTesting, setWpTesting] = useState(false)
+  const [wpTestResult, setWpTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   useEffect(() => {
     setApiKeys(getApiKeys())
     setStore(getStoreInfo())
     setEditStore(getStoreInfo() || {})
     setSchedule(getMeasurementSchedule())
+    setWpConfig(getWordPressConfig())
   }, [])
 
   const handleSaveApiKey = (key: keyof ApiKeys) => {
@@ -130,6 +139,42 @@ export default function SettingsPage() {
     setStore(updated)
     setStoreSaved(true)
     setTimeout(() => setStoreSaved(false), 2000)
+  }
+
+  const handleSaveWordPress = () => {
+    saveWordPressConfig(wpConfig)
+    setWpSaved(true)
+    setTimeout(() => setWpSaved(false), 2000)
+  }
+
+  const handleTestWordPress = async () => {
+    if (!wpConfig.siteUrl || !wpConfig.username || !wpConfig.applicationPassword) {
+      setWpTestResult({ ok: false, message: 'URLとユーザー名とアプリケーションパスワードを入力してください' })
+      return
+    }
+    setWpTesting(true)
+    setWpTestResult(null)
+    try {
+      const base64 = btoa(`${wpConfig.username}:${wpConfig.applicationPassword}`)
+      const siteUrl = wpConfig.siteUrl.replace(/\/$/, '')
+      const res = await fetch(`${siteUrl}/wp-json/wp/v2/users/me`, {
+        headers: { Authorization: `Basic ${base64}` },
+      })
+      if (res.ok) {
+        const user = await res.json()
+        saveWordPressConfig({ ...wpConfig, connected: true })
+        setWpConfig((prev) => ({ ...prev, connected: true }))
+        setWpTestResult({ ok: true, message: `接続成功: ${user.name ?? wpConfig.username} としてログイン中` })
+      } else {
+        saveWordPressConfig({ ...wpConfig, connected: false })
+        setWpConfig((prev) => ({ ...prev, connected: false }))
+        setWpTestResult({ ok: false, message: `接続失敗 (HTTP ${res.status}): 認証情報を確認してください` })
+      }
+    } catch {
+      setWpTestResult({ ok: false, message: 'ネットワークエラーが発生しました。URLを確認してください' })
+    } finally {
+      setWpTesting(false)
+    }
   }
 
   const handleReset = () => {
@@ -242,6 +287,88 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground bg-muted p-2 rounded">
             ※ 完全なOAuth連携には追加の実装が必要です。現在はGmail Compose URLを使って送信できます。
           </p>
+        </CardContent>
+      </Card>
+
+      {/* WordPress Integration */}
+      <Card>
+        <CardHeader>
+          <CardTitle>WordPress 連携</CardTitle>
+          <CardDescription>
+            Application Password を使ってWordPressサイトのコンテンツを直接更新できます
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {wpConfig.connected && (
+            <div className="flex items-center gap-2 rounded-md bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">
+              <CheckCircle className="h-4 w-4 shrink-0" />
+              接続済み
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="wp-site-url">WordPress サイトURL</Label>
+            <Input
+              id="wp-site-url"
+              type="url"
+              placeholder="https://example.com"
+              value={wpConfig.siteUrl}
+              onChange={(e) => setWpConfig((prev) => ({ ...prev, siteUrl: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="wp-username">ユーザー名</Label>
+            <Input
+              id="wp-username"
+              placeholder="admin"
+              value={wpConfig.username}
+              onChange={(e) => setWpConfig((prev) => ({ ...prev, username: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="wp-app-password">Application Password</Label>
+            <div className="relative">
+              <Input
+                id="wp-app-password"
+                type={showWpPassword ? 'text' : 'password'}
+                placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+                value={wpConfig.applicationPassword}
+                onChange={(e) => setWpConfig((prev) => ({ ...prev, applicationPassword: e.target.value }))}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                onClick={() => setShowWpPassword((p) => !p)}
+              >
+                {showWpPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              WordPress管理画面 → ユーザー → プロフィール → Application Passwords から生成できます
+            </p>
+          </div>
+          {wpTestResult && (
+            <div className={`rounded-md border px-3 py-2 text-sm ${wpTestResult.ok ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+              {wpTestResult.message}
+            </div>
+          )}
+          <Separator />
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleTestWordPress} disabled={wpTesting} className="flex-1">
+              {wpTesting ? (
+                <><span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />接続テスト中...</>
+              ) : (
+                <><Link className="h-4 w-4 mr-2" />接続テスト</>
+              )}
+            </Button>
+            <Button onClick={handleSaveWordPress} className="flex-1">
+              {wpSaved ? (
+                <><CheckCircle className="h-4 w-4 mr-2 text-green-300" />保存しました</>
+              ) : (
+                <><Save className="h-4 w-4 mr-2" />設定を保存</>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

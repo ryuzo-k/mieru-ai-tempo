@@ -9,6 +9,8 @@ import {
   ApiKeys,
   GmailConfig,
   MeasurementSchedule,
+  WordPressConfig,
+  ContentPattern,
 } from '@/types'
 
 const STORAGE_KEY = 'miel_for_stores'
@@ -37,6 +39,13 @@ const defaultStore: AppStore = {
     preset: 'three_times',
     customTimes: ['09:00', '13:00', '18:00'],
   },
+  wordPressConfig: {
+    siteUrl: '',
+    username: '',
+    applicationPassword: '',
+    connected: false,
+  },
+  contentPatterns: [],
   setupCompleted: false,
 }
 
@@ -166,6 +175,33 @@ export function isSetupCompleted(): boolean {
 
 export function completeSetup(): void {
   saveStore({ setupCompleted: true })
+}
+
+export function getWordPressConfig(): WordPressConfig {
+  return getStore().wordPressConfig
+}
+
+export function saveWordPressConfig(config: Partial<WordPressConfig>): void {
+  const current = getStore().wordPressConfig
+  saveStore({ wordPressConfig: { ...current, ...config } })
+}
+
+export function getContentPatterns(): ContentPattern[] {
+  return getStore().contentPatterns ?? []
+}
+
+export function saveContentPatterns(patterns: ContentPattern[]): void {
+  saveStore({ contentPatterns: patterns })
+}
+
+export function addContentPattern(pattern: ContentPattern): void {
+  const patterns = getContentPatterns()
+  saveStore({ contentPatterns: [...patterns, pattern] })
+}
+
+export function deleteContentPattern(id: string): void {
+  const patterns = getContentPatterns().filter((p) => p.id !== id)
+  saveStore({ contentPatterns: patterns })
 }
 
 export function resetStore(): void {

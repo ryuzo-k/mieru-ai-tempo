@@ -10,6 +10,10 @@ import {
   ArrowRight,
   TrendingUp,
   Zap,
+  Building2,
+  ExternalLink,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 import {
   Card,
@@ -34,6 +38,7 @@ import {
   getStoreInfo,
   getPrompts,
   getMeasurementSessions,
+  getWordPressConfig,
 } from '@/lib/storage'
 import { StoreInfo, Prompt, MeasurementSession } from '@/types'
 
@@ -42,11 +47,16 @@ export default function DashboardPage() {
   const [store, setStore] = useState<StoreInfo | null>(null)
   const [prompts, setPrompts] = useState<Prompt[]>([])
   const [sessions, setSessions] = useState<MeasurementSession[]>([])
+  const [wpConnected, setWpConnected] = useState(false)
+  const [wpSiteUrl, setWpSiteUrl] = useState('')
 
   useEffect(() => {
     setStore(getStoreInfo())
     setPrompts(getPrompts())
     setSessions(getMeasurementSessions())
+    const wpConfig = getWordPressConfig()
+    setWpConnected(wpConfig.connected)
+    setWpSiteUrl(wpConfig.siteUrl)
   }, [])
 
   // Compute stats
@@ -137,6 +147,65 @@ export default function DashboardPage() {
           {store ? 'GEO対策の現状を確認できます' : '店舗のGEO状況'}
         </p>
       </div>
+
+      {/* Client Overview Card */}
+      {store && (
+        <Card className="border-2 border-primary/10 bg-gradient-to-br from-primary/5 to-background">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-primary" />
+              クライアント概要
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">クライアント名</p>
+                <p className="text-sm font-semibold">{store.name}</p>
+                <p className="text-xs text-muted-foreground">{store.businessType}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">ウェブサイトURL</p>
+                {store.websiteUrl ? (
+                  <a
+                    href={store.websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{store.websiteUrl}</span>
+                  </a>
+                ) : (
+                  <p className="text-sm text-muted-foreground">未設定</p>
+                )}
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">WordPress連携</p>
+                <div className="flex items-center gap-1.5">
+                  {wpConnected ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                      <span className="text-sm font-medium text-green-700">接続済み</span>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-muted-foreground">未接続</span>
+                    </>
+                  )}
+                </div>
+                {wpSiteUrl && <p className="text-xs text-muted-foreground truncate">{wpSiteUrl}</p>}
+                {!wpConnected && (
+                  <Link href="/settings" className="text-xs text-blue-600 hover:underline">
+                    設定で接続する →
+                  </Link>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
